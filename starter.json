@@ -1,0 +1,21 @@
+{
+  "name": "Red Light",
+  "genre": "party",
+  "dim": "3D",
+  "mode": "Party",
+  "players": "2–20",
+  "hook": "Run while the robot sings. Freeze when it turns.",
+  "how": "Hum-Bot sings with its back to you: run for the finish line. When the song ends it turns round, and anyone it sees moving gets zapped back to the start. Songs are different lengths and it fakes you out, so watch the notes.",
+  "controls": "WASD, arrows or Space (or hold the mouse) to run, let go to stop; on touch, hold and push the stick",
+  "uses": [
+    ["Host-run rounds", "The host's browser runs the robot's songs and stares, decides every zap and finish and keeps the times; if it leaves, the next player takes over."],
+    ["Bots", "Bot runners fill the field, and sometimes stop a moment too late."],
+    ["Live sync", "Every runner, every zap and the robot's turn are the same for everyone."],
+    ["Leaderboard", "The fastest runs to the finish line."]
+  ],
+  "ideas": [
+    "Make the robot a giant scarecrow in a pumpkin field",
+    "Add a bush halfway down that hides you from the robot",
+    "Give the robot a second, faster song in the last 20 seconds"
+  ]
+}

@@ -1,0 +1,953 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Red Light</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #a6e3ff; }
+  body { font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; }
+  canvas { display: block; touch-action: none; }
+  .hud { position: fixed; pointer-events: none; text-shadow: 0 2px 4px #0009; font-weight: 800; }
+  #light { top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); padding: 5px 20px; border-radius: 999px; font-size: 21px; white-space: nowrap; text-shadow: 0 1px 2px #0006;
+           background: #23b26b; box-shadow: 0 3px 0 #0003; transition: background .12s, transform .12s; }
+  #light.wait { background: #0007; } #light.fake { background: #e9a21b; } #light.turn { background: #ff9a1f; transform: translateX(-50%) scale(1.08); }
+  #light.look { background: #ff3048; transform: translateX(-50%) scale(1.15); } #light:empty { display: none; }
+  #notes { top: calc(max(10px, env(safe-area-inset-top)) + 44px); left: 0; right: 0; text-align: center; font-size: 17px; letter-spacing: 3px; }
+  #notes i { font-style: normal; opacity: .3; } #notes i.on { opacity: 1; color: #ffe066; }
+  #clock { top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); font-size: 20px; font-variant-numeric: tabular-nums; }
+  #track { top: calc(max(10px, env(safe-area-inset-top)) + 74px); left: 50%; transform: translateX(-50%); width: min(320px, calc(100vw - 80px)); height: 8px; border-radius: 6px; background: #0004; box-shadow: inset 0 0 0 2px #fff8; }
+  #track:empty { display: none; }
+  #track b { position: absolute; top: -4px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; border: 2px solid #fff; box-sizing: border-box; transition: left .1s linear; }
+  #track b.me { width: 20px; height: 20px; top: -6px; margin-left: -10px; z-index: 2; border: 3px solid #ffe066; }
+  #track::after { content: "🏁"; position: absolute; right: -26px; top: -9px; font-size: 17px; text-shadow: none; }
+  #big { inset: 0; display: grid; place-items: center; text-align: center; font-size: min(13vw, 92px); line-height: 1; color: #fff; -webkit-text-stroke: 3px #b3122b; padding: 0 16px; }
+  #big.good { -webkit-text-stroke-color: #157a45; }
+  #big small { display: block; font-size: min(5vw, 22px); -webkit-text-stroke: 0; margin-top: 12px; }
+  #msg { left: 16px; right: 16px; bottom: calc(max(14px, env(safe-area-inset-bottom)) + 30px); text-align: center; font-size: 16px; }
+  #net { bottom: max(10px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 600; opacity: .85; white-space: nowrap; }
+  #look { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .15s; background: radial-gradient(ellipse at center, transparent 55%, #ff1f3d77 100%); }
+  #over { position: fixed; inset: 0; display: grid; place-items: center; background: #2a123066; }
+  #over[hidden], #stick[hidden] { display: none; }
+  .card { width: min(380px, calc(100vw - 32px)); max-height: 86vh; overflow: auto; padding: 20px; border-radius: 18px; background: #2b2140; border: 2px solid #ffffff33; box-sizing: border-box; }
+  .card h2 { margin: 0 0 4px; font-size: 24px; color: #ffe066; }
+  .card h3 { margin: 14px 0 4px; font-size: 14px; color: #ff9fb0; }
+  .card ol { margin: 0; padding-left: 24px; font-size: 14px; }
+  .card li span { float: right; font-variant-numeric: tabular-nums; }
+  .card li em { font-style: normal; opacity: .7; font-size: 12px; }
+  .card li.me { color: #ffe066; font-weight: 700; }
+  .card p { margin: 6px 0 0; font-size: 14px; opacity: .9; }
+  button.go { margin-top: 16px; width: 100%; min-height: 48px; border: 0; border-radius: 12px; background: #ffe066; color: #2b2140; font: 800 17px system-ui, sans-serif; cursor: pointer; }
+  #stick { position: fixed; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: #ffffff22; border: 2px solid #ffffff88; pointer-events: none; }
+  #stick i { position: absolute; left: 35px; top: 35px; width: 50px; height: 50px; border-radius: 50%; background: #ffffffaa; }
+</style>
+<script src="https://cdn.multiplayeragent.com/sdk/mp.global.js"></script>
+<script type="importmap">{ "imports": { "three": "./libs/three.module.min.js" } }</script>
+</head>
+<body>
+<div id="look"></div>
+<div class="hud" id="light"></div>
+<div class="hud" id="notes"></div>
+<div class="hud" id="clock"></div>
+<div class="hud" id="track"></div>
+<div class="hud" id="big"></div>
+<div class="hud" id="msg"></div>
+<div class="hud" id="net">Connecting…</div>
+<div id="stick" hidden><i></i></div>
+<div id="over" hidden><div class="card">
+  <h2 id="overTitle"></h2><p id="overLine"></p>
+  <h3>This round</h3><ol id="results"></ol>
+  <h3>Fastest runs</h3><ol id="board"><li>Loading…</li></ol>
+  <button class="go" id="again">Play again</button>
+  <p id="next"></p>
+</div></div>
+<script type="module">
+/* ═══ RED LIGHT · a Multiplayer Agent starter ═══════════════════════════════════════════
+ * Run while Hum-Bot sings. Freeze when it turns round. Party, 2–20 players; bots fill seats.
+ *
+ * WHERE THINGS ARE (search for the "── " headers):
+ *   CONFIG ........ song and stare lengths, fake-outs, speed, how strict the stare is, bots
+ *   CONNECTION .... MP_CONNECT, joining, the offline room, who is host
+ *   FIELD ......... grass, start and finish lines, fences, trees
+ *   HUM-BOT ....... the singing robot: body, face screens, antenna lamp, search beams, lasers
+ *   RUNNERS ....... the player model, freeze poses, the zap fizz, name tags
+ *   WATCHER ....... the song → turn → look → back cycle, worked out from timestamps
+ *   ROUND (HOST) .. brief → play → over, deciding who moved (zap) and who finished.
+ *                   Only the host writes these.
+ *   BOTS .......... bot runners: they run, stop late now and then, fall for fake-outs
+ *                   (the host runs them; in ?attract the same brain drives your runner)
+ *   ME ............ running, stopping, reporting your own moves. Each player writes only its own.
+ *   HUD & RESULTS . the light, the song notes, the race bar, results card, leaderboard
+ *   INPUT & SOUND . keyboard, mouse, touch stick, WebAudio song and effects
+ *
+ * HOW THE MULTIPLAYER WORKS (a relay room: no server code):
+ *   - Each player writes its OWN entity: `p` (one packed JSON field: round id, position,
+ *     heading, animation, and `m` = the number of the last look it moved in) about 12 times a
+ *     second, `hb` (heartbeat) once a second, and `n`/`c` (name, color) once.
+ *   - The HOST is the lowest sessionId among live players (heartbeat seen in the last 3s),
+ *     worked out every frame. Only the host writes the shared fields `game` (id, v, phase,
+ *     timers, the watcher segment `w`, who finished and when, who got zapped) and `bots`
+ *     (every bot's position, ~10 times a second). A new host adopts both and carries on.
+ *   - The watcher is timestamps: `w` = {s: number, k: sing|turn|look|back, a: start, b: end,
+ *     f: fake-out}. A turn always lasts turnMs, so every client knows exactly when a look
+ *     starts even before the host's next write arrives (see phaseAt()).
+ *   - Moving during a look: each player checks ITSELF (its own speed, from its own input) and
+ *     reports the look's number in `p.m`. The host zaps on that report, and also zaps anyone
+ *     whose published position drifts more than CONFIG.slack during a look. A zapped player
+ *     fizzes, then puts ITSELF back on the start line; the host does the same for bots.
+ *   - Finishing: the host sees a published position past the finish line and records it.
+ *   - The only intent is "again" (start the next round sooner from the results card).
+ *   - ?attract plays offline with bots only (the preview video is recorded from it).
+ *   - Leaderboard "red-light-time": fastest finish (stored as boardBase - ms, higher = faster).
+ */
+import * as THREE from "three";
+
+// ── CONFIG ──────────────────────────────────────────────────────────────────────────
+const CONFIG = {
+  seats: 8,              // bots fill the field up to this many runners
+  briefMs: 3500,         // everyone lines up before the first song
+  roundMs: 80000,        // the round ends after this long even if not everyone made it
+  allHomeMs: 6000,       // once every person is across, the bots get this long to finish
+  overMs: 9000,          // results before the next round
+  singMs: [1600, 5200],  // how long a song lasts (random each time): run!
+  turnMs: 650,           // Hum-Bot turning round: stop now
+  lookMs: [1700, 3600],  // how long it stares: anyone moving gets zapped
+  backMs: 350,           // turning back to sing (moving is safe again)
+  fakeChance: 0.3,       // chance a song has a fake-out (the head twitches round, the music hiccups)
+  fakeMs: 700,           // how long a fake-out lasts
+  speed: 5.6,            // running speed, units/s
+  accel: 26,             // how quickly you speed up and stop
+  moveEps: 0.6,          // faster than this (units/s) during a look = moving
+  slack: 0.9,            // the host also zaps anyone whose published spot drifts this far during a look...
+  slackDelayMs: 300,     // ...measured from this long after the look starts (updates are in flight)
+  stunMs: 1100,          // a zapped runner fizzes this long, then pops back to the start
+  radius: 0.45,          // how wide a runner is
+  fieldW: 24,            // the field is this wide...
+  startZ: 26, finishZ: -24, // ...and runs from the start line to the finish line (toward Hum-Bot)
+  botPace: [0.8, 1.0],   // bots run at this share of your speed (each bot picks one)
+  botReact: [80, 470],   // ms a bot takes to stop after the turn starts...
+  botSlip: 0.08,         // ...but this often it stops too late and gets zapped
+  botSneak: 0.05,        // chance a bot takes a sneaky step during a look
+  botFooled: 0.5,        // chance a fake-out makes a bot stop
+  board: "red-light-time", boardBase: 300000, // leaderboard: fastest finish, submitted as boardBase - ms
+};
+const MELODY = [72, 76, 79, 76, 74, 77, 76, 72]; // Hum-Bot's song: 8 notes, played faster or slower to fit each song's length
+const BOT_NAMES = ["Skip", "Pip", "Juno", "Dot", "Bix", "Rue", "Taz", "Momo", "Kit", "Zuzu", "Nell", "Ollie"];
+const COLORS = ["#ff5d73", "#ff9f43", "#ffd23f", "#3fc78a", "#4da3ff", "#b77dff", "#ff6fb5", "#3fc7c0", "#a3e635", "#f97316", "#60a5fa", "#e879f9"];
+
+// ── CONNECTION ──────────────────────────────────────────────────────────────────────
+// The builder fills these in for this game. Downloaded from GitHub? Put your own pk_ key here.
+const MP_CONNECT = {
+  key: 'pk_REPLACE_ME',
+  room: 'red-light',
+  endpoint: 'wss://live.multiplayeragent.com',
+  apiUrl: 'https://api.multiplayeragent.com',
+};
+const QS = new URLSearchParams(location.search), ATTRACT = QS.has("attract");
+if (ATTRACT) Object.assign(CONFIG, { seats: 9, briefMs: 600, roundMs: 40000, overMs: 2500, singMs: [1500, 2500], lookMs: [1400, 2000], fakeChance: 0.35, botSlip: 0.3, botSneak: 0.1, startZ: 6 });
+
+/** Same shape as the SDK client, kept in this tab: offline play and ?attract. */
+function localRoom() {
+  const id = "local", state = { entities: { players: { [id]: {} } }, shared: {} }, subs = [];
+  let queued = false;
+  const emit = () => { if (!queued) { queued = true; queueMicrotask(() => { queued = false; subs.forEach((f) => f(state)); }); } };
+  const put = (o, k, v) => { if (typeof k === "object") Object.assign(o, k); else o[k] = v; emit(); };
+  return {
+    sessionId: id, state, offline: true,
+    me: { set: (k, v) => put(state.entities.players[id], k, v) },
+    setShared: (k, v) => put(state.shared, k, v),
+    onState: (f) => { subs.push(f); f(state); }, onJoin() {}, onLeave() {}, on() {}, send() {},
+    onDisconnect() {}, onReconnect() {}, leave: async () => {},
+  };
+}
+async function connect() {
+  if (ATTRACT || typeof MP === "undefined") return localRoom();
+  try {
+    const mp = await Promise.race([MP.join({ ...MP_CONNECT }), new Promise((_, no) => setTimeout(() => no(new Error("timed out")), 10000))]);
+    window.mp = mp; // the builder calls window.mp.leave() when the page closes
+    return mp;
+  } catch (e) {
+    console.warn("Playing offline:", e && e.message);
+    return localRoom();
+  }
+}
+const parse = (v, fb) => { if (typeof v !== "string") return fb; try { return JSON.parse(v); } catch { return fb; } };
+const memo = new Map();
+/** A shared JSON field, parsed once per change (read-only: never mutate what this returns). */
+function shared(key, fb) { const raw = S.shared[key], m = memo.get(key); if (m && m.raw === raw) return m.v; const v = parse(raw, fb); memo.set(key, { raw, v }); return v; }
+let net = null, S = { entities: { players: {} }, shared: {} };
+const seenHb = new Map();
+function livePlayers() {
+  const now = performance.now(), out = [];
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    const s = seenHb.get(id);
+    if (!s || s.hb !== p.hb) seenHb.set(id, { hb: p.hb, at: now });
+    if (id === net.sessionId || now - seenHb.get(id).at < 3000) out.push(id);
+  }
+  return out.sort();
+}
+let hostHold = 0, lastTick = performance.now(); // lastTick: when frame() last ran; hostHold: after a freeze, no hosting before this time (see frame())
+const isHost = () => performance.now() > hostHold && performance.now() - lastTick < 1000 && livePlayers()[0] === net.sessionId; // a tab whose loop has stopped doesn't host
+const isBot = (id) => id[0] === "@"; // bot ids look like "@3"; sessionIds never have an @
+
+// ── FIELD ───────────────────────────────────────────────────────────────────────────
+const HALF_W = CONFIG.fieldW / 2, R = CONFIG.radius, START = CONFIG.startZ, FINISH = CONFIG.finishZ, BOT_Z = FINISH - 9; // Hum-Bot stands behind the finish
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const rnd = (r) => r[0] + Math.random() * (r[1] - r[0]);
+const hash = (s) => [...String(s)].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) >>> 0, 7);
+/** Keep a body ({x, z}) inside the fences. */
+function moveBody(o, dx, dz) { o.x = clamp(o.x + dx, -HALF_W + 0.6, HALF_W - 0.6); o.z = clamp(o.z + dz, FINISH - 6.5, START + 4); }
+
+const renderer = new THREE.WebGLRenderer({ antialias: !ATTRACT }); // the preview recorder renders in software: keep it cheap
+renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.autoUpdate = false; // only the field casts sun shadows, so draw them once
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.5, 300);
+function fit() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.fov = ATTRACT ? 46 : camera.aspect < 1 ? 68 : 50; camera.updateProjectionMatrix(); } // wider on a tall phone
+addEventListener("resize", fit); addEventListener("orientationchange", fit); fit();
+function canvasTex(w, h, paint, rx, ry) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h; paint(c.getContext("2d"), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  if (rx) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry); }
+  return t;
+}
+scene.background = canvasTex(4, 256, (c, w, h) => { const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#56b4ff"); g.addColorStop(0.6, "#bfe6ff"); g.addColorStop(1, "#f2fbff"); c.fillStyle = g; c.fillRect(0, 0, w, h); });
+scene.fog = new THREE.Fog("#e2f4ff", 55, 150);
+scene.add(new THREE.HemisphereLight("#eef8ff", "#6da04a", 1.5));
+const sun = new THREE.DirectionalLight("#fff3dc", 2.0);
+sun.position.set(14, 30, 12); sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 45, bottom: -45, near: 1, far: 100 }); sun.shadow.bias = -0.0006;
+scene.add(sun);
+const mat = (color, more) => new THREE.MeshStandardMaterial({ color, roughness: 0.75, ...more });
+const add = (geo, m, x, y, z, shadow = true) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = shadow; o.receiveShadow = true; scene.add(o); return o; };
+const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), E3 = new THREE.Euler(), V3 = new THREE.Vector3(), SC = new THREE.Vector3();
+const flat = (geo) => geo.rotateX(-Math.PI / 2);
+const textTex = (w, h, text, fg, bg, size) => canvasTex(w, h, (c) => { if (bg) { c.fillStyle = bg; c.fillRect(0, 0, w, h); } c.font = `900 ${size}px system-ui, sans-serif`; c.textAlign = "center"; c.textBaseline = "middle"; c.fillStyle = fg; c.fillText(text, w / 2, h / 2 + 4); });
+{
+  // grass all round, the mown field, chalk lines every 10 units
+  const grass = canvasTex(64, 64, (c, w, h) => { c.fillStyle = "#79c055"; c.fillRect(0, 0, w, h); for (let i = 0; i < 300; i++) { c.fillStyle = Math.random() < 0.5 ? "#6fb54f" : "#86cc5f"; c.fillRect(Math.random() * w, Math.random() * h, 2, 2); } }, 40, 40);
+  add(flat(new THREE.PlaneGeometry(220, 220)), mat("#ffffff", { map: grass, roughness: 1 }), 0, -0.01, 0, false);
+  const len = START - FINISH + 14, stripes = canvasTex(8, 128, (c, w, h) => { for (let i = 0; i < 8; i++) { c.fillStyle = i % 2 ? "#93d769" : "#86cc5f"; c.fillRect(0, (i * h) / 8, w, h / 8); } }, 1, len / 32);
+  add(flat(new THREE.PlaneGeometry(CONFIG.fieldW + 1, len)), mat("#ffffff", { map: stripes, roughness: 1 }), 0, 0, (START + FINISH) / 2 - 2, false);
+  const chalk = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.45 });
+  for (let z = FINISH + 10; z < START - 2; z += 10) add(flat(new THREE.PlaneGeometry(CONFIG.fieldW, 0.14)), chalk, 0, 0.012, z, false);
+  // the start line, with START painted behind it
+  add(flat(new THREE.PlaneGeometry(CONFIG.fieldW, 0.5)), mat("#ffffff"), 0, 0.015, START, false);
+  add(flat(new THREE.PlaneGeometry(10, 2.5)), new THREE.MeshBasicMaterial({ map: textTex(512, 128, "START", "#ffffffd0", "", 110), transparent: true, depthWrite: false }), 0, 0.02, START + 2.2, false);
+  // the finish: a checkered band and an arch with a banner
+  const checks = canvasTex(256, 16, (c) => { for (let i = 0; i < 32; i++) for (let j = 0; j < 2; j++) { c.fillStyle = (i + j) % 2 ? "#ffffff" : "#ff3b55"; c.fillRect(i * 8, j * 8, 8, 8); } });
+  add(flat(new THREE.PlaneGeometry(CONFIG.fieldW, 1.2)), mat("#ffffff", { map: checks }), 0, 0.016, FINISH, false);
+  for (const s of [-1, 1]) add(new THREE.CylinderGeometry(0.25, 0.3, 4.4, 12), mat("#ff3b55"), s * (HALF_W + 0.4), 2.2, FINISH);
+  const banner = textTex(1024, 64, "★  F I N I S H  ★", "#ffffff", "#ff3b55", 46);
+  add(new THREE.BoxGeometry(CONFIG.fieldW + 1.4, 1.0, 0.15), [mat("#ff3b55"), mat("#ff3b55"), mat("#ff3b55"), mat("#ff3b55"), mat("#ffffff", { map: banner }), mat("#ffffff", { map: banner })], 0, 4.0, FINISH);
+  // bunting on the arch
+  const flags = new THREE.InstancedMesh(new THREE.ConeGeometry(0.28, 0.6, 3).rotateX(Math.PI), mat("#ffffff"), 22);
+  for (let i = 0; i < 22; i++) { const x = -HALF_W + (i + 0.5) * (CONFIG.fieldW / 22); flags.setMatrixAt(i, M4.makeTranslation(x, 3.15 + Math.cos((x / HALF_W) * 1.4) * 0.15, FINISH)); flags.setColorAt(i, new THREE.Color(COLORS[i % COLORS.length])); }
+  scene.add(flags);
+  // picket fences down both sides
+  const z0 = FINISH - 8, z1 = START + 5, n = Math.floor((z1 - z0) / 0.7), pickets = new THREE.InstancedMesh(new THREE.BoxGeometry(0.16, 1, 0.12), mat("#ffffff"), n * 2);
+  for (let i = 0; i < n; i++) for (const [k, s] of [[0, -1], [1, 1]]) pickets.setMatrixAt(i * 2 + k, M4.makeTranslation(s * (HALF_W + 0.5), 0.5, z0 + i * 0.7));
+  pickets.castShadow = true; scene.add(pickets);
+  for (const s of [-1, 1]) for (const y of [0.35, 0.75]) add(new THREE.BoxGeometry(0.08, 0.12, z1 - z0), mat("#ffffff"), s * (HALF_W + 0.42), y, (z0 + z1) / 2);
+  // trees and flower bushes outside the fences, and a row of trees behind Hum-Bot
+  const spots = [];
+  for (let z = z0 - 4; z < z1 + 6; z += 5.5) for (const s of [-1, 1]) spots.push([s * (HALF_W + 4 + (hash(z * s) % 5)), z + (hash(z) % 3)]);
+  for (let x = -26; x <= 26; x += 6.5) spots.push([x, BOT_Z - 9 - (hash(x) % 4)]);
+  const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.3, 0.42, 1.8, 8), mat("#8a5a34"), spots.length);
+  const crown = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1.6, 0), mat("#4fae4a", { flatShading: true }), spots.length);
+  spots.forEach(([x, z], i) => { const s = 0.9 + (hash(x * 7 + z) % 5) * 0.12; trunk.setMatrixAt(i, M4.compose(V3.set(x, 0.9 * s, z), Q.identity(), SC.set(s, s, s))); crown.setMatrixAt(i, M4.compose(V3.set(x, 2.7 * s, z), Q.identity(), SC.set(s, s, s))); });
+  trunk.castShadow = crown.castShadow = true; scene.add(trunk, crown);
+  const bushes = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.7, 0), mat("#5dbb4f", { flatShading: true }), 40), blooms = new THREE.InstancedMesh(new THREE.SphereGeometry(0.16, 8, 6), mat("#ffffff"), 80);
+  for (let i = 0; i < 40; i++) {
+    const s = i % 2 ? 1 : -1, x = s * (HALF_W + 1.6), z = z0 + 2 + (i >> 1) * ((z1 - z0 - 4) / 20);
+    bushes.setMatrixAt(i, M4.makeTranslation(x, 0.4, z));
+    for (let k = 0; k < 2; k++) { blooms.setMatrixAt(i * 2 + k, M4.makeTranslation(x + (k ? 0.3 : -0.3), 0.85, z + (k ? -0.2 : 0.25))); blooms.setColorAt(i * 2 + k, new THREE.Color(["#ff6fb5", "#ffd23f", "#ffffff", "#ff9f43"][(i + k) % 4])); }
+  }
+  scene.add(bushes, blooms);
+}
+
+// Particles: a ring buffer of little cubes (sparks, confetti, dust).
+const PARTS = 260, parts = Array.from({ length: PARTS }, () => ({ life: 0 }));
+const partMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), new THREE.MeshBasicMaterial(), PARTS);
+partMesh.setColorAt(0, new THREE.Color("#fff")); partMesh.frustumCulled = false; scene.add(partMesh);
+let nextPart = 0;
+function burst(x, y, z, colors, n, speed) {
+  for (let i = 0; i < n; i++) {
+    const p = parts[nextPart]; partMesh.setColorAt(nextPart, new THREE.Color(colors[i % colors.length])); nextPart = (nextPart + 1) % PARTS;
+    Object.assign(p, { x, y, z, vx: (Math.random() - 0.5) * speed, vy: Math.random() * speed * 0.9, vz: (Math.random() - 0.5) * speed, life: 0.6 + Math.random() * 0.5, r: Math.random() * 6 });
+  }
+  partMesh.instanceColor.needsUpdate = true;
+}
+function drawParts(dt) {
+  parts.forEach((p, i) => {
+    if (p.life > 0) { p.life -= dt; p.vy -= 14 * dt; p.x += p.vx * dt; p.y = Math.max(0.08, p.y + p.vy * dt); p.z += p.vz * dt; p.r += dt * 6; }
+    const s = p.life > 0 ? Math.min(1, p.life * 2.5) : 0;
+    partMesh.setMatrixAt(i, M4.compose(V3.set(p.x || 0, p.y || 0, p.z || 0), Q.setFromEuler(E3.set(p.r || 0, (p.r || 0) * 0.7, 0)), SC.set(s, s, s)));
+  });
+  partMesh.instanceMatrix.needsUpdate = true;
+}
+
+// ── HUM-BOT ─────────────────────────────────────────────────────────────────────────
+// A big friendly robot on a stage behind the finish. Facing away (rotation π) it sings;
+// facing the field (rotation 0) it looks, eyes red, two search beams sweeping the grass.
+const HB = (() => {
+  const stage = canvasTex(256, 32, (c) => { for (let x = 0; x < 256; x += 32) { c.fillStyle = "#ffd23f"; c.fillRect(x, 0, 16, 32); c.fillStyle = "#ff5d73"; c.fillRect(x + 16, 0, 16, 32); } });
+  add(new THREE.CylinderGeometry(4, 4.4, 2.2, 40), [mat("#ffffff", { map: stage }), mat("#f6f0e2"), mat("#f6f0e2")], 0, 1.1, BOT_Z);
+  const g = new THREE.Group(); g.position.set(0, 2.2, BOT_Z); scene.add(g);
+  const spin = new THREE.Group(); g.add(spin);
+  const cream = mat("#f6f0e2", { roughness: 0.45 }), orange = mat("#ff8a3d", { roughness: 0.5 }), steel = mat("#5b6680", { roughness: 0.4, metalness: 0.3 });
+  const part = (geo, m, x, y, z, parent = spin) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
+  for (const s of [-1, 1]) { part(new THREE.CylinderGeometry(0.42, 0.52, 1.6, 14), steel, s * 0.85, 0.8, 0); part(new THREE.BoxGeometry(1.1, 0.4, 1.6), orange, s * 0.85, 0.2, 0.15); }
+  part(new THREE.CapsuleGeometry(1.5, 1.2, 6, 24), cream, 0, 3.2, 0);
+  const dial = canvasTex(128, 128, (c) => { c.fillStyle = "#ff8a3d"; c.beginPath(); c.arc(64, 64, 62, 0, 7); c.fill(); c.fillStyle = "#fff4e0"; c.beginPath(); c.arc(64, 64, 44, 0, 7); c.fill(); c.fillStyle = "#ff5d73"; c.font = "900 56px system-ui"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText("♥", 64, 68); });
+  part(new THREE.CircleGeometry(0.85, 32), mat("#ffffff", { map: dial }), 0, 3.3, 1.52);
+  const grille = canvasTex(128, 128, (c) => { c.fillStyle = "#3a4258"; c.beginPath(); c.arc(64, 64, 62, 0, 7); c.fill(); c.fillStyle = "#1d2232"; for (let y = 14; y < 120; y += 12) for (let x = 14; x < 120; x += 12) if (Math.hypot(x - 64, y - 64) < 50) { c.beginPath(); c.arc(x, y, 3.5, 0, 7); c.fill(); } });
+  const speakerMat = new THREE.MeshStandardMaterial({ map: grille, emissive: "#ffd23f", emissiveIntensity: 0 });
+  part(new THREE.CircleGeometry(1.05, 32), speakerMat, 0, 3.4, -1.52).rotation.y = Math.PI;
+  const arms = [-1, 1].map((s) => { const p = new THREE.Group(); p.position.set(s * 1.75, 4.3, 0); spin.add(p); part(new THREE.CapsuleGeometry(0.3, 1.3, 4, 10), orange, 0, -0.9, 0, p); part(new THREE.SphereGeometry(0.45, 14, 10), cream, 0, -1.9, 0, p); return p; });
+  const head = new THREE.Group(); head.position.y = 6.3; spin.add(head);
+  part(new THREE.BoxGeometry(3.3, 2.3, 2.4), cream, 0, 0, 0, head);
+  const screen = (paint) => new THREE.MeshBasicMaterial({ map: canvasTex(256, 160, (c, w, h) => { c.fillStyle = "#1b2238"; c.beginPath(); c.roundRect(4, 4, w - 8, h - 8, 26); c.fill(); paint(c); }) });
+  const faces = {
+    sing: screen((c) => { c.strokeStyle = "#6ff0ff"; c.lineWidth = 12; c.lineCap = "round"; for (const x of [80, 176]) { c.beginPath(); c.arc(x, 78, 22, Math.PI * 1.1, Math.PI * 1.9); c.stroke(); } c.fillStyle = "#6ff0ff"; c.beginPath(); c.ellipse(128, 118, 14, 18, 0, 0, 7); c.fill(); }),
+    turn: screen((c) => { for (const x of [80, 176]) { c.fillStyle = "#ffffff"; c.beginPath(); c.arc(x, 76, 30, 0, 7); c.fill(); c.fillStyle = "#1b2238"; c.beginPath(); c.arc(x, 82, 13, 0, 7); c.fill(); } c.fillStyle = "#ffffff"; c.fillRect(104, 120, 48, 8); }),
+    look: screen((c) => { c.shadowColor = "#ff2040"; c.shadowBlur = 24; for (const x of [80, 176]) { c.fillStyle = "#ff2b45"; c.beginPath(); c.ellipse(x, 80, 32, 22, 0, 0, 7); c.fill(); c.fillStyle = "#ffd0d6"; c.beginPath(); c.arc(x, 80, 9, 0, 7); c.fill(); } }),
+  };
+  const face = part(new THREE.PlaneGeometry(2.8, 1.75), faces.sing, 0, 0.05, 1.21, head);
+  part(new THREE.PlaneGeometry(2.8, 1.75), new THREE.MeshStandardMaterial({ map: grille }), 0, 0, -1.21, head).rotation.y = Math.PI;
+  for (const s of [-1, 1]) part(new THREE.CylinderGeometry(0.5, 0.5, 0.35, 18).rotateZ(Math.PI / 2), orange, s * 1.8, 0, 0, head);
+  part(new THREE.CylinderGeometry(0.07, 0.07, 1.1, 8), steel, 0, 1.7, 0, head);
+  const lampMat = new THREE.MeshStandardMaterial({ color: "#3bdc6e", emissive: "#3bdc6e", emissiveIntensity: 1.2 });
+  const lamp = part(new THREE.SphereGeometry(0.36, 16, 12), lampMat, 0, 2.4, 0, head);
+  // two search beams from the eyes, apex at the eye, opening toward the field
+  const beamGeo = new THREE.ConeGeometry(3.2, 30, 24, 1, true).translate(0, -15, 0).rotateX(-Math.PI / 2);
+  const beamMat = new THREE.MeshBasicMaterial({ color: "#ff3048", transparent: true, opacity: 0.0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  const beams = [-0.62, 0.62].map((x) => { const b = new THREE.Mesh(beamGeo, beamMat); b.position.set(x, 0.1, 1.2); b.rotation.x = 0.24; head.add(b); return b; });
+  // laser zaps: thin red rods drawn from an eye to whoever moved
+  const laserGeo = new THREE.CylinderGeometry(0.09, 0.09, 1, 8).translate(0, 0.5, 0);
+  const lasers = Array.from({ length: 4 }, () => { const m = new THREE.Mesh(laserGeo, new THREE.MeshBasicMaterial({ color: "#ff4060", transparent: true })); m.visible = false; scene.add(m); return { m, life: 0 }; });
+  return { g, spin, head, arms, face, faces, lampMat, beams, beamMat, speakerMat, lasers, faceKind: "sing" };
+})();
+const EYE = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
+let laserNext = 0;
+function laser(x, y, z) {
+  const L = HB.lasers[laserNext++ % HB.lasers.length];
+  HB.head.localToWorld(EYE.set(laserNext % 2 ? 0.62 : -0.62, 0.1, 1.25));
+  const dir = V3.set(x - EYE.x, y - EYE.y, z - EYE.z), len = dir.length();
+  L.m.position.copy(EYE); L.m.quaternion.setFromUnitVectors(UP, dir.normalize()); L.m.scale.set(1, len, 1); L.life = 0.35; L.m.visible = true;
+}
+/** Pose Hum-Bot from the watcher's phase: which way it faces, its face, lamp, beams and arms. */
+function drawHumBot(g, t, dt, sec) {
+  const p = g.phase === "play" ? phaseAt(g.w, t) : { k: "wait", a: 0, b: 0, f: 0 }, since = t - p.a;
+  const ease = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  let yaw = Math.PI, headYaw = 0, face = "sing", lamp = "#3bdc6e", beam = 0;
+  if (p.k === "wait") lamp = "#9aa3b5";
+  if (p.k === "sing" && p.f && since > p.f && since < p.f + CONFIG.fakeMs) { const k = Math.sin(((since - p.f) / CONFIG.fakeMs) * Math.PI); headYaw = -k * 1.5; face = "turn"; lamp = "#ffb020"; } // fake-out: the head twitches round, then back
+  if (p.k === "turn") { yaw = Math.PI * (1 - ease(since / CONFIG.turnMs)); face = "turn"; lamp = "#ffb020"; }
+  if (p.k === "look") { yaw = 0; headYaw = Math.sin(sec * 1.4) * 0.28; face = "look"; lamp = "#ff2d3d"; beam = 0.13 + Math.sin(sec * 9) * 0.03; }
+  if (p.k === "back") { yaw = Math.PI * ease(since / CONFIG.backMs); face = "turn"; }
+  HB.spin.rotation.y = yaw; HB.head.rotation.y = headYaw;
+  if (HB.faceKind !== face) { HB.faceKind = face; HB.face.material = HB.faces[face]; }
+  HB.lampMat.color.set(lamp); HB.lampMat.emissive.set(lamp);
+  HB.beamMat.opacity += (beam - HB.beamMat.opacity) * Math.min(1, dt * 12);
+  HB.beams.forEach((b) => (b.visible = HB.beamMat.opacity > 0.01));
+  const singing = p.k === "sing" && !(p.f && since > p.f && since < p.f + CONFIG.fakeMs), step = p.k === "sing" ? noteStep(g.w) : 400;
+  const sway = singing ? Math.sin((since / step) * Math.PI) : 0;
+  HB.spin.position.y = singing ? Math.abs(sway) * 0.15 : 0;
+  HB.arms[0].rotation.set(singing ? sway * 0.7 : p.k === "look" ? 0 : 0, 0, singing ? -0.5 - Math.abs(sway) * 0.6 : p.k === "look" ? -0.35 : -0.15);
+  HB.arms[1].rotation.set(singing ? -sway * 0.7 : 0, 0, singing ? 0.5 + Math.abs(sway) * 0.6 : p.k === "look" ? 0.35 : 0.15);
+  HB.speakerMat.emissiveIntensity = singing ? 0.15 + Math.abs(sway) * 0.5 : 0;
+  for (const L of HB.lasers) { if (L.life > 0) { L.life -= dt; L.m.material.opacity = clamp(L.life * 4, 0, 1); } L.m.visible = L.life > 0; }
+  // floating ♪ notes from the speaker while it sings
+  notes.forEach((n) => { if (n.life <= 0) { n.s.visible = false; return; } n.life -= dt; n.s.visible = true; n.s.position.y += dt * 2.2; n.s.position.x += Math.sin(n.life * 6 + n.k) * dt; n.s.material.opacity = clamp(n.life, 0, 1); });
+}
+const noteTex = textTex(64, 64, "♪", "#ffe066", "", 56);
+const notes = Array.from({ length: 10 }, (_, k) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: noteTex, transparent: true, depthWrite: false })); s.scale.set(1.4, 1.4, 1); s.visible = false; scene.add(s); return { s, life: 0, k }; });
+let noteNext = 0;
+function floatNote() { const n = notes[noteNext++ % notes.length]; n.life = 1.4; n.s.position.set((Math.random() - 0.5) * 2.5, 6.7 + Math.random(), BOT_Z + 2); }
+
+// ── RUNNERS ─────────────────────────────────────────────────────────────────────────
+const skin = mat("#ffe0c2"), black = mat("#1d2433"), shoe = mat("#3a3f4f"), hairs = ["#4a2c1a", "#2b2b33", "#c98a3c", "#7a3b1e"].map((c) => mat(c));
+const bodyGeo = new THREE.CapsuleGeometry(0.42, 0.42, 4, 14), headGeo = new THREE.SphereGeometry(0.44, 18, 14), eyeGeo = new THREE.SphereGeometry(0.065, 8, 6);
+const hairGeo = new THREE.SphereGeometry(0.47, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.55).rotateX(-0.35), armGeo = new THREE.CapsuleGeometry(0.1, 0.34, 3, 8), footGeo = new THREE.SphereGeometry(0.15, 10, 8);
+const blobGeo = flat(new THREE.CircleGeometry(0.55, 18)), blobMat = new THREE.MeshBasicMaterial({ color: "#000", transparent: true, opacity: 0.25, depthWrite: false });
+function nameTag(text) {
+  const tex = canvasTex(256, 64, (c) => { c.font = "bold 32px system-ui"; c.textAlign = "center"; c.lineWidth = 6; c.strokeStyle = "#000a"; c.strokeText(text, 128, 44); c.fillStyle = "#fff"; c.fillText(text, 128, 44); });
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true })); s.scale.set(3, 0.75, 1); s.position.y = 2.6; return s;
+}
+function makeKid(color, name) {
+  const g = new THREE.Group(), rig = new THREE.Group(), bodyMat = mat(color, { roughness: 0.55 });
+  const part = (geo, m, x, y, z, parent = rig) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); parent.add(o); return o; };
+  part(bodyGeo, bodyMat, 0, 0.78, 0);
+  const head = new THREE.Group(); head.position.y = 1.6; rig.add(head);
+  part(headGeo, skin, 0, 0, 0, head);
+  part(hairGeo, hairs[hash(color) % hairs.length], 0, 0.02, -0.03, head);
+  for (const s of [-1, 1]) part(eyeGeo, black, s * 0.15, 0.05, 0.4, head);
+  const arms = [-1, 1].map((s) => { const p = new THREE.Group(); p.position.set(s * 0.5, 1.1, 0); rig.add(p); part(armGeo, bodyMat, 0, -0.24, 0, p); return p; });
+  const feet = [-1, 1].map((s) => part(footGeo, shoe, s * 0.2, 0.12, 0.05));
+  const blob = new THREE.Mesh(blobGeo, blobMat); blob.position.y = 0.03;
+  g.add(rig, blob);
+  if (name && !ATTRACT) g.add(nameTag(name));
+  scene.add(g);
+  return { g, rig, head, arms, feet, bodyMat, color };
+}
+// Freeze poses: [left arm x, z], [right arm x, z], lean. Each runner strikes one per look.
+const POSES = [[[0, -2.7], [0, 2.7], 0], [[-1.2, -0.3], [0, 1.6], 0.1], [[0, -1.5], [0, 1.5], 0], [[-2.8, -0.4], [0.6, 0.3], -0.15], [[0.8, -0.2], [-2.6, 0.5], 0.12]];
+/** Pose a runner: a = 0 idle, 1 run, 2 frozen in a pose, 3 zapped (fizzing), 4 dancing past the finish. */
+function poseKid(v, a, pose, t) {
+  v.rig.rotation.set(0, 0, 0); v.rig.position.set(0, 0, 0);
+  v.bodyMat.emissive.set(a === 3 ? "#6fe8ff" : "#000000"); v.bodyMat.emissiveIntensity = a === 3 ? 0.5 + 0.5 * Math.sin(t * 50) : 0;
+  if (a === 2) {
+    const [l, r, lean] = POSES[pose % POSES.length];
+    v.arms[0].rotation.set(l[0], 0, l[1]); v.arms[1].rotation.set(r[0], 0, r[1]); v.rig.rotation.x = lean;
+    v.feet[0].position.z = 0.25; v.feet[1].position.z = -0.15; return;
+  }
+  if (a === 3) { v.rig.position.x = Math.sin(t * 70) * 0.06; v.rig.rotation.z = Math.sin(t * 31) * 0.12; v.arms[0].rotation.set(0, 0, -2.5); v.arms[1].rotation.set(0, 0, 2.5); return; }
+  if (a === 4) { const j = Math.abs(Math.sin(t * 7)); v.rig.position.y = j * 0.45; v.arms[0].rotation.set(0, 0, -2.4 - j * 0.4); v.arms[1].rotation.set(0, 0, 2.4 + j * 0.4); v.rig.rotation.y = Math.sin(t * 3.5) * 0.6; return; }
+  const run = a === 1 ? 1 : 0, sw = Math.sin(t * 14) * run;
+  v.rig.position.y = Math.abs(sw) * 0.12; v.rig.rotation.x = run * 0.14;
+  v.arms[0].rotation.set(sw * 0.9, 0, -0.15); v.arms[1].rotation.set(-sw * 0.9, 0, 0.15);
+  v.feet.forEach((f, i) => (f.position.z = 0.05 + (i ? sw : -sw) * 0.18));
+}
+const views = new Map(); // id -> drawn runner, for everyone but me
+function viewOf(id, color, name) {
+  let v = views.get(id);
+  if (v && v.color !== color) { scene.remove(v.g); v = null; }
+  if (!v) { v = makeKid(color, name); views.set(id, v); }
+  return v;
+}
+// Other players and (on non-hosts) bots arrive ~10–12 times a second. Draw them LAG ms in the past,
+// between the two updates around that moment, so they glide instead of stepping.
+const LAG = 150, tracks = new Map();
+function feed(id, raw, s, now) {
+  let tr = tracks.get(id);
+  if (!tr) { tr = { raw: null, buf: [] }; tracks.set(id, tr); }
+  if (tr.raw === raw) return tr;
+  tr.raw = raw;
+  const last = tr.buf[tr.buf.length - 1];
+  if (last && Math.hypot(last.x - s.x, last.z - s.z) > 5) { tr.buf.length = 0; burst(s.x, 0.8, s.z, ["#ffffff", "#dff7ff"], 14, 5); } // a jump (zapped back to the start, or a new round): pop there
+  tr.buf.push({ at: now, x: s.x, z: s.z, h: s.h, a: s.a || 0 });
+  if (tr.buf.length > 10) tr.buf.shift();
+  return tr;
+}
+function sample(tr, now) {
+  const b = tr.buf, t = now - LAG;
+  if (!b.length) return null;
+  if (b.length === 1 || t <= b[0].at) return b[0];
+  for (let i = b.length - 1; i > 0; i--) {
+    if (b[i - 1].at > t) continue;
+    const p = b[i - 1], q = b[i];
+    if (t >= q.at) return q;
+    const k = (t - p.at) / Math.max(1, q.at - p.at);
+    return { x: p.x + (q.x - p.x) * k, z: p.z + (q.z - p.z) * k, h: p.h + angDiff(q.h, p.h) * k, a: q.a };
+  }
+  return b[b.length - 1];
+}
+
+// ── WATCHER ─────────────────────────────────────────────────────────────────────────
+// The host writes one segment at a time into game.w: {s, k, a, b, f}. sing and look lengths are
+// random (picked by the host); turn and back always last turnMs / backMs, so everyone can run
+// ahead of the host's next write: when a song ends, the turn has started, and turnMs later the
+// look has, wherever the host's message is.
+const NEXT = { wait: "sing", sing: "turn", turn: "look", look: "back", back: "sing" };
+function phaseAt(w, t) {
+  let { k, a, b, s, f } = w;
+  for (let i = 0; i < 3 && t >= b; i++) {
+    k = NEXT[k]; s++; a = b; f = 0;
+    b = k === "turn" ? a + CONFIG.turnMs : k === "back" ? a + CONFIG.backMs : Infinity; // a song's or a look's length isn't known until the host picks it
+  }
+  return { k, a, b, s, f };
+}
+/** The number of the look going on at time t, or 0 if Hum-Bot isn't looking. */
+const lookSeq = (g, t) => { if (g.phase !== "play") return 0; const p = phaseAt(g.w, t); return p.k === "look" ? p.s : 0; };
+const lookStart = (g, t) => phaseAt(g.w, t).a;
+/** The host picks what comes after segment w. */
+function nextSeg(w) {
+  const k = NEXT[w.k], a = w.b;
+  if (k === "sing") { const sd = Math.round(rnd(CONFIG.singMs)), f = Math.random() < CONFIG.fakeChance && sd > 2000 ? Math.round(sd * (0.3 + Math.random() * 0.35)) : 0; return { s: w.s + 1, k, a, b: a + sd + (f ? CONFIG.fakeMs : 0), f }; }
+  return { s: w.s + 1, k, a, b: a + Math.round(k === "turn" ? CONFIG.turnMs : k === "look" ? rnd(CONFIG.lookMs) : CONFIG.backMs), f: 0 };
+}
+/** When each of the song's 8 notes plays (a fake-out pauses the song in the middle). */
+const noteStep = (w) => (w.b - w.a - (w.f ? CONFIG.fakeMs : 0)) / MELODY.length;
+const noteTimes = (w) => MELODY.map((m, i) => w.a + i * noteStep(w) + (w.f && i * noteStep(w) >= w.f ? CONFIG.fakeMs : 0));
+
+// ── ROUND (HOST) ────────────────────────────────────────────────────────────────────
+const host = { was: false, last: null, bots: new Map(), lastPub: 0, again: false, snap: { s: -1, at: {} } };
+/** The round as state has it, or the host's own newer write that hasn't come back yet. `v` only goes up. */
+function game() { const g = shared("game", null); return host.last && isHost() && (!g || host.last.v > g.v) ? host.last : g; }
+function writeGame(g) { g = { ...g, v: (game()?.v ?? 0) + 1 }; host.last = g; net.setShared("game", JSON.stringify(g)); return g; }
+const newBody = () => ({ x: 0, z: START, h: Math.PI, vx: 0, vz: 0, a: 0, pace: rnd(CONFIG.botPace), lx: 0, seg: -1, react: 0, fooled: false, sneakAt: -1, delay: 0, homeFor: 0 });
+const isDone = (g, id) => g.fin.some((f) => f[0] === id);
+const zapOf = (g, id) => g.z[id] || null; // [times zapped, look number, ms into the round]
+const stunned = (g, id, t) => { const z = zapOf(g, id); return !!z && t - g.startAt - z[2] < CONFIG.stunMs; };
+
+function startRound(id) {
+  const here = livePlayers(), seated = here.filter((h) => !(ATTRACT && h === net.sessionId)); // in ?attract your autopilot takes a bot's seat
+  syncBots(Math.max(0, CONFIG.seats - seated.length - (ATTRACT ? 1 : 0)));
+  const t = Date.now(), G = { id, phase: "brief", startAt: t + CONFIG.briefMs, endsAt: t + CONFIG.briefMs + CONFIG.roundMs, endedAt: 0,
+    w: { s: 0, k: "wait", a: t, b: t + CONFIG.briefMs, f: 0 }, ln: [...here, ...host.bots.keys()], fin: [], z: {}, left: [] };
+  for (const b of host.bots.values()) Object.assign(b, newBody(), startSpot(b.id, G), { lx: startSpot(b.id, G).x });
+  return writeGame(G);
+}
+/** Each runner's spot on the start line (and where a zap sends them back to). */
+function startSpot(id, G) {
+  let i = G.ln.indexOf(id);
+  if (i < 0) i = hash(id) % 20;
+  const row = Math.floor(i / 10), col = [4, 5, 3, 6, 2, 7, 1, 8, 0, 9][i % 10]; // people first, from the middle out
+  return { x: (col - 4.5) * 2.2 + (row % 2) * 1.1, z: START + 1 + row * 1.6, h: Math.PI };
+}
+/** Where a runner dances once it is safe. */
+const danceSpot = (id) => ({ x: ((hash(id) % 9) - 4) * 2.4, z: FINISH - 2.5 - (hash(id + "d") % 3) * 1.3 });
+/** Become host: take over the round and the bots exactly as state has them. */
+function adopt() {
+  host.was = true; host.bots.clear(); host.snap = { s: -1, at: {} };
+  const g = shared("game", null), t = Date.now();
+  for (const b of shared("bots", [])) {
+    const z = g && g.z[b.i];
+    host.bots.set(b.i, { ...newBody(), id: b.i, name: b.n, color: b.c, x: b.x, z: b.z, h: b.h, lx: b.x, homeFor: z ? (stunned(g, b.i, t) ? z[0] - 1 : z[0]) : 0 }); // a bot mid-fizz still pops home
+  }
+}
+function syncBots(want) {
+  for (let i = 1; host.bots.size < want && i < 64; i++) if (!host.bots.has("@" + i)) {
+    const used = new Set([...host.bots.values()].map((b) => b.color).concat(livePlayers().map(colorOf)));
+    host.bots.set("@" + i, { ...newBody(), id: "@" + i, name: BOT_NAMES[(i - 1) % BOT_NAMES.length], color: COLORS.find((c) => !used.has(c)) || COLORS[i % COLORS.length] });
+  }
+  while (host.bots.size > want) host.bots.delete([...host.bots.keys()].pop());
+}
+function botList() {
+  if (!isHost()) return shared("bots", []);
+  return [...host.bots.values()].map((b) => ({ i: b.id, n: b.name, c: b.color, x: +b.x.toFixed(2), z: +b.z.toFixed(2), h: +b.h.toFixed(2), a: b.a }));
+}
+const posCache = new Map();
+/** Another player's packed `p` field, parsed once per change. */
+function posOf(id, p) { let c = posCache.get(id); if (!c || c.raw !== p.p) { c = { raw: p.p, v: parse(p.p, null) }; posCache.set(id, c); } return c.v; }
+/** Everyone in this round at their latest known spot: { id, name, color, x, z, h, a, vx, vz, m, bot, mine }. */
+function people(G) {
+  const out = [], live = new Set(livePlayers());
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    if (id === net.sessionId) { if (me.gameId === G.id) out.push({ id, name: myName, color: myColor, x: me.x, z: me.z, h: me.h, a: me.a, vx: me.vx, vz: me.vz, mine: true }); continue; }
+    const q = posOf(id, p);
+    if (live.has(id) && q && q.g === G.id) out.push({ id, name: p.n || "Player", color: p.c || "#ccc", x: q.x, z: q.z, h: q.h, a: q.a || 0, m: q.m || 0 });
+  }
+  if (isHost()) for (const b of host.bots.values()) out.push({ id: b.id, name: b.name, color: b.color, x: b.x, z: b.z, h: b.h, a: b.a, vx: b.vx, vz: b.vz, bot: true });
+  else for (const b of botList()) out.push({ id: b.i, name: b.n, color: b.c, x: b.x, z: b.z, h: b.h, a: b.a, bot: true });
+  return out;
+}
+
+function hostTick(dt, now) {
+  if (!host.was) adopt();
+  let g = game();
+  if (!g) g = startRound(1);
+  const t = Date.now(), G = clone(g);
+  let dirty = false;
+  if (G.phase === "brief" && t >= G.startAt) { G.phase = "play"; G.w = nextSeg(G.w); dirty = true; }
+  if (G.phase !== "over") for (const id of livePlayers()) if (!G.ln.includes(id) && G.ln.length < 40) { G.ln.push(id); dirty = true; } // joined mid-round: a lane at the back
+  if (G.phase === "play") {
+    for (let i = 0; i < 4 && t >= G.w.b; i++) { G.w = nextSeg(G.w); dirty = true; } // (a new host catches up on overdue segments)
+    dirty = judge(G, t) || dirty;
+  }
+  botsTick(dt, G, t);
+  if (dirty) writeGame(G);
+  if (G.phase === "over" && (t >= G.endsAt || host.again)) startRound(G.id + 1);
+  host.again = false;
+  if (now - host.lastPub > 100) { host.lastPub = now; net.setShared("bots", JSON.stringify(botList())); } // ~10/s, one message for all bots
+}
+/** Finishes and zaps, all from everyone's latest position, then the end of the round. */
+function judge(G, t) {
+  let dirty = false;
+  const all = people(G), seq = lookSeq(G, t);
+  for (const c of all) {
+    if (isDone(G, c.id)) continue;
+    if (c.z <= FINISH) { G.fin.push([c.id, t - G.startAt]); dirty = true; continue; }
+    const z = zapOf(G, c.id);
+    if (!seq || (z && z[1] === seq) || stunned(G, c.id, t)) continue; // one zap per look; a fizzing runner isn't judged
+    if (moved(c, seq, G, t)) { G.z[c.id] = [(z ? z[0] : 0) + 1, seq, t - G.startAt]; dirty = true; }
+  }
+  const people_ = all.filter((c) => !c.bot), home = (c) => isDone(G, c.id);
+  if (people_.length && people_.every(home) && G.endsAt > t + CONFIG.allHomeMs) { G.endsAt = t + CONFIG.allHomeMs; dirty = true; }
+  if ((all.length && all.every(home)) || t >= G.endsAt) {
+    const left = all.filter((c) => !home(c)).map((c) => [c.id, Math.round(clamp((START - c.z) / (START - FINISH), 0, 1) * 100)]).sort((a, b) => b[1] - a[1]);
+    Object.assign(G, { phase: "over", endedAt: t, endsAt: t + CONFIG.overMs, left: left.slice(0, 30) }); dirty = true;
+  }
+  return dirty;
+}
+/** Did this runner move during look `seq`? Your own report first; the host also checks what you publish. */
+function moved(c, seq, G, t) {
+  if (c.mine) return me.mv === seq;
+  if (c.bot) return Math.hypot(c.vx, c.vz) > CONFIG.moveEps; // the host runs the bots: it knows exactly
+  if (c.m === seq) return true; // the player says it moved
+  if (t < lookStart(G, t) + CONFIG.slackDelayMs) return false;
+  if (host.snap.s !== seq) host.snap = { s: seq, at: {} };
+  const s = host.snap.at[c.id];
+  if (!s) { host.snap.at[c.id] = { x: c.x, z: c.z }; return false; }
+  return Math.hypot(c.x - s.x, c.z - s.z) > CONFIG.slack;
+}
+
+// ── BOTS ────────────────────────────────────────────────────────────────────────────
+// One brain for every bot (and, in ?attract, for your own runner). Each segment it rolls how
+// fast it will react; now and then it reacts too late, falls for a fake-out or sneaks a step.
+const STILL = { mx: 0, mz: 0 };
+function botsTick(dt, G, t) {
+  const all = people(G);
+  for (const b of host.bots.values()) {
+    goHome(b, b.id, G, t);
+    stepBody(b, botInput(b, G, t), dt, CONFIG.speed * b.pace);
+    separate(b, b.id, all);
+    b.a = animOf(b, b.id, G, t);
+  }
+}
+/** A zapped runner pops back to its start spot once its fizz is over (once per zap). */
+function goHome(b, id, G, t) {
+  const z = zapOf(G, id);
+  if (!z || z[0] <= b.homeFor || stunned(G, id, t) || isDone(G, id)) return false;
+  b.homeFor = z[0]; Object.assign(b, startSpot(id, G), { vx: 0, vz: 0 });
+  burst(b.x, 0.8, b.z, ["#ffffff", "#dff7ff"], 14, 5);
+  return true;
+}
+function botInput(b, G, t) {
+  if (G.phase !== "play" || stunned(G, b.id || net.sessionId, t)) return STILL;
+  if (isDone(G, b.id || net.sessionId) || b.z <= FINISH) return toward(b, danceSpot(b.id || net.sessionId));
+  const p = phaseAt(G.w, t), since = t - p.a;
+  if (b.seg !== p.s) { // a new segment: roll this bot's reactions for it
+    b.seg = p.s;
+    b.react = Math.random() < CONFIG.botSlip ? CONFIG.turnMs + rnd([-40, 260]) : rnd(CONFIG.botReact);
+    b.fooled = Math.random() < CONFIG.botFooled;
+    b.sneakAt = Math.random() < CONFIG.botSneak ? rnd([300, 1200]) : -1;
+    b.delay = rnd([60, 380]);
+    if (p.k === "sing") b.lx = clamp(b.lx + rnd([-2.5, 2.5]), -HALF_W + 1.5, HALF_W - 1.5);
+  }
+  let go = false;
+  if (p.k === "sing") go = since > b.delay && !(b.fooled && p.f && since > p.f + 160 && since < p.f + CONFIG.fakeMs + 120);
+  else if (p.k === "back") go = since > b.delay;
+  else if (p.k === "turn") go = since < b.react;
+  else if (p.k === "look") go = b.sneakAt >= 0 && since > b.sneakAt && since < b.sneakAt + 350;
+  return go ? { mx: clamp((b.lx - b.x) * 0.3, -0.5, 0.5), mz: -1 } : STILL;
+}
+function toward(b, p) { const dx = p.x - b.x, dz = p.z - b.z, d = Math.hypot(dx, dz); return d < 0.3 ? STILL : { mx: dx / d, mz: dz / d }; }
+/** One movement step (yours or a bot's): input mx/mz in -1..1. */
+function stepBody(b, inp, dt, speed) {
+  let { mx, mz } = inp; const len = Math.hypot(mx, mz);
+  if (len > 1) { mx /= len; mz /= len; }
+  const k = Math.min(1, CONFIG.accel * dt);
+  b.vx += (mx * speed - b.vx) * k; b.vz += (mz * speed - b.vz) * k;
+  if (Math.hypot(b.vx, b.vz) < 0.05) b.vx = b.vz = 0;
+  moveBody(b, b.vx * dt, b.vz * dt);
+  const sp = Math.hypot(b.vx, b.vz);
+  if (sp > 0.5) b.h += angDiff(Math.atan2(b.vx, b.vz), b.h) * Math.min(1, dt * 14);
+}
+/** Runners don't overlap: nudge this one out of everyone else (a nudge isn't a move). */
+function separate(b, id, all) {
+  for (const o of all) {
+    if (o.id === id) continue;
+    const dx = b.x - o.x, dz = b.z - o.z, d = Math.hypot(dx, dz);
+    if (d < R * 2 && d > 1e-3) moveBody(b, (dx / d) * (R * 2 - d) * 0.5, (dz / d) * (R * 2 - d) * 0.5);
+  }
+}
+/** The animation everyone sees: zapped, dancing, running, frozen in a pose, or idle. */
+function animOf(b, id, G, t) {
+  if (stunned(G, id, t)) return 3;
+  const sp = Math.hypot(b.vx, b.vz);
+  if (isDone(G, id) && sp < 1) return 4;
+  if (sp > 1) return 1;
+  const k = G.phase === "play" ? phaseAt(G.w, t).k : "";
+  return k === "look" || k === "turn" ? 2 : 0;
+}
+
+// ── ME ──────────────────────────────────────────────────────────────────────────────
+const FRIENDLY = ["Zippy", "Sunny", "Bouncy", "Lucky", "Speedy", "Sneaky"], CRITTERS = ["Otter", "Fox", "Bunny", "Panda", "Gecko", "Koala"];
+const myName = (() => { try { return localStorage.getItem("mpa-name") || ""; } catch { return ""; } })() || FRIENDLY[Math.floor(Math.random() * 6)] + " " + CRITTERS[Math.floor(Math.random() * 6)];
+let myColor = COLORS[0]; // picked on join: the first color nobody in the room has
+const me = { ...newBody(), id: "", gameId: -1, lastSend: 0, view: null, playAt: 0, mv: 0, pace: 0.95 };
+const nameOf = (id) => (id === net.sessionId ? myName : isBot(id) ? host.bots.get(id)?.name || botList().find((b) => b.i === id)?.n || "Bot" : S.entities.players[id]?.n || "Player");
+const colorOf = (id) => (id === net.sessionId ? myColor : isBot(id) ? host.bots.get(id)?.color || botList().find((b) => b.i === id)?.c || "#ccc" : S.entities.players[id]?.c || "#ccc");
+
+function myTick(dt, g, now) {
+  const t = Date.now(), id = net.sessionId;
+  if (me.gameId !== g.id) { me.gameId = g.id; Object.assign(me, newBody(), startSpot(id, g), { mv: 0, pace: 0.95, lx: startSpot(id, g).x }); $("over").hidden = true; }
+  if (goHome(me, id, g, t)) bigText("ZAPPED!<small>Back to the start…</small>", 1200, false);
+  const done = isDone(g, id), fizz = stunned(g, id, t);
+  let inp = STILL;
+  if (g.phase === "play" && !fizz) inp = done || me.z <= FINISH ? toward(me, danceSpot(id)) : ATTRACT ? botInput(me, g, t) : readInput();
+  stepBody(me, inp, dt, CONFIG.speed);
+  separate(me, id, people(g));
+  // Honest self-check: am I moving while Hum-Bot looks? Report the look's number (once).
+  const seq = lookSeq(g, t);
+  if (seq && !done && me.z > FINISH && !fizz && Math.hypot(me.vx, me.vz) > CONFIG.moveEps && me.mv !== seq) { me.mv = seq; me.lastSend = 0; }
+  me.a = animOf(me, id, g, t);
+  if (now - me.lastSend > 80) { // ~12/s
+    me.lastSend = now;
+    net.me.set("p", JSON.stringify({ g: g.id, x: +me.x.toFixed(2), z: +me.z.toFixed(2), h: +me.h.toFixed(2), a: me.a, m: me.mv }));
+  }
+}
+
+// ── HUD & RESULTS ───────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const fmt = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
+const secs = (ms) => (ms / 1000).toFixed(1) + "s";
+const ordinal = (n) => n + (["th", "st", "nd", "rd"][(n % 100 > 10 && n % 100 < 14) || n % 10 > 3 ? 0 : n % 10]);
+const local = { big: "", bigUntil: 0, good: false };
+const bigText = (html, ms, good) => { local.big = html; local.bigUntil = performance.now() + ms; local.good = !!good; };
+let board = null, boardFor = -1, reconnecting = false;
+const LIGHTS = { wait: "Get ready…", sing: "♪ RUN!", fake: "♪ RUN…?", turn: "STOP!", look: "✋ FREEZE!", back: "♪ RUN!" };
+const dots = new Map();
+function hud(g, all) {
+  const t = Date.now(), id = net.sessionId, p = g.phase === "play" ? phaseAt(g.w, t) : { k: "wait", a: 0, f: 0 };
+  const fake = p.k === "sing" && p.f && t - p.a > p.f && t - p.a < p.f + CONFIG.fakeMs, kind = fake ? "fake" : p.k;
+  $("look").style.opacity = kind === "look" ? 1 : 0;
+  $("light").className = "hud " + (g.phase === "over" ? "" : kind);
+  $("light").textContent = g.phase === "over" ? "" : g.phase === "brief" ? LIGHTS.wait : LIGHTS[kind];
+  if (ATTRACT) { for (const k of ["notes", "clock", "track", "big", "msg", "net"]) $(k).textContent = ""; return; } // the preview keeps only the light
+  const lit = p.k === "sing" ? noteTimes(g.w).filter((x) => x <= t).length : p.k === "wait" ? 0 : 8;
+  $("notes").innerHTML = g.phase === "play" ? MELODY.map((m, i) => `<i class="${i < lit ? "on" : ""}">♪</i>`).join("") : "";
+  $("clock").textContent = g.phase === "play" ? fmt(Math.max(0, g.endsAt - t)) : "";
+  // the race bar: everyone's progress from the start line (left) to the finish (right)
+  const track = $("track");
+  if (g.phase === "over") { track.textContent = ""; dots.clear(); }
+  else {
+    const seen = new Set();
+    for (const c of all) {
+      let d = dots.get(c.id);
+      if (!d || !d.isConnected) { d = document.createElement("b"); dots.set(c.id, d); track.appendChild(d); }
+      d.style.background = c.color; d.className = c.mine ? "me" : "";
+      d.style.left = clamp((START - c.z) / (START - FINISH), 0, 1) * 100 + "%"; seen.add(c.id);
+    }
+    for (const [k, d] of dots) if (!seen.has(k)) { d.remove(); dots.delete(k); }
+  }
+  let big = performance.now() < local.bigUntil ? local.big : "", good = local.good;
+  if (g.phase === "brief") { big = `${Math.max(1, Math.ceil((g.startAt - t) / 1000))}<small>Run while Hum-Bot sings. Freeze when it turns!</small>`; good = true; }
+  $("big").className = "hud" + (good ? " good" : "");
+  $("big").innerHTML = big ? `<div>${big}</div>` : "";
+  let msg = "";
+  const done = isDone(g, id);
+  if (g.phase === "play") {
+    if (!me.playAt) me.playAt = t;
+    if (stunned(g, id, t)) msg = "Zapped! You moved while Hum-Bot was looking.";
+    else if (done) msg = "You're safe! Dance and cheer the others on.";
+    else if (t - me.playAt < 9000) msg = touchUI ? "Hold and push the stick to run · let go when Hum-Bot turns" : "Hold W / ↑ / Space (or the mouse) to run · let go when Hum-Bot turns";
+    else if (kind === "look") msg = "Don't. Move. A muscle.";
+    else if (kind === "fake") msg = "A fake-out? The song isn't over…";
+  }
+  $("msg").textContent = msg;
+  const n = livePlayers().length;
+  $("net").textContent = net.offline ? "Offline: playing with bots" : reconnecting ? "Reconnecting…" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the round" : ""}`;
+  const over = g.phase === "over" && t - g.endedAt > 1200;
+  $("over").hidden = !over;
+  if (over) results(g, t);
+}
+function results(g, t) {
+  const id = net.sessionId, place = g.fin.findIndex((f) => f[0] === id) + 1, inRound = me.gameId === g.id, zaps = zapOf(g, id)?.[0] || 0;
+  const first = g.fin[0];
+  $("overTitle").textContent = place === 1 ? "You win! First across" : place ? `Made it! ${ordinal(place)} place` : first ? `${nameOf(first[0])} wins!` : "Nobody made it!";
+  $("overLine").textContent = !inRound ? "You'll run in the next round." : `${place ? `Your time: ${secs(g.fin[place - 1][1])}. ` : "Out of time. "}${zaps ? `Hum-Bot zapped you ${zaps}×.` : "Hum-Bot never caught you!"}`;
+  const zap = (i) => { const n = zapOf(g, i)?.[0] || 0; return n ? ` <em>⚡${n}</em>` : ""; };
+  const rows = [...g.fin.map(([i, ms]) => [i, secs(ms)]), ...g.left.map(([i, pr]) => [i, pr + "%"])].slice(0, 12);
+  $("results").innerHTML = rows.map(([i, v]) => `<li class="${i === id ? "me" : ""}">${esc(i === id ? "You" : nameOf(i))}${zap(i)}<span>${v}</span></li>`).join("");
+  $("next").textContent = `Next round in ${Math.max(0, Math.ceil((g.endsAt - t) / 1000))}s`;
+  if (boardFor !== g.id) { boardFor = g.id; showBoard(inRound && place ? g.fin[place - 1][1] : 0); }
+}
+function showBoard(ms) {
+  const list = $("board");
+  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
+  list.innerHTML = "<li>Loading…</li>";
+  (ms > 0 ? board.submit(Math.max(0, CONFIG.boardBase - ms)).catch(() => null) : Promise.resolve()).then(() => board.top(10)).then(({ entries }) => {
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${secs(CONFIG.boardBase - e.score)}</span></li>`).join("") : "<li>No runs yet. Set the first.</li>";
+  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+}
+/** Keep a color nobody else has: the later sessionId gives way, and the bots' colors count as taken. */
+function fixColor() {
+  const others = Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId), bots = botList().map((b) => b.c);
+  if (!others.some(([id, p]) => id < net.sessionId && p.c === myColor) && !bots.includes(myColor)) return;
+  const used = new Set([...others.map(([, p]) => p.c), ...bots]);
+  const free = COLORS.find((c) => !used.has(c));
+  if (!free || free === myColor) return;
+  myColor = free; net.me.set("c", myColor);
+  if (me.view) { scene.remove(me.view.g); me.view = null; }
+}
+$("again").onclick = () => { const g = game(); if (!g || g.phase !== "over") return; if (isHost()) host.again = true; else net.send("again", {}); $("over").hidden = true; };
+
+/** One-off effects worked out from what changed in state (so nobody misses one). */
+let prevG = null, prevKind = "", shake = 0;
+function effects(g, all, t) {
+  const kind = g.phase === "play" ? phaseAt(g.w, t).k : "wait";
+  if (kind !== prevKind) {
+    if (kind === "turn") sound("turn");
+    if (kind === "look") sound("look");
+    if (kind === "sing" && prevKind === "wait") { sound("go"); bigText("GO!", 800, true); }
+    prevKind = kind;
+  }
+  if (prevG && prevG.id === g.id) {
+    const at = (id) => all.find((c) => c.id === id);
+    for (const [id, z] of Object.entries(g.z)) if (!prevG.z[id] || prevG.z[id][0] < z[0]) {
+      const c = at(id); if (c) { laser(c.x, 1.1, c.z); burst(c.x, 1.1, c.z, ["#ff4060", "#ffffff", "#6fe8ff"], 24, 8); }
+      sound("zap"); if (id === net.sessionId) { shake = 0.5; bigText("ZAPPED!<small>You moved!</small>", 1100, false); }
+    }
+    for (const f of g.fin.slice(prevG.fin.length)) {
+      const c = at(f[0]); if (c) burst(c.x, 1.4, c.z, COLORS, 30, 9);
+      sound("safe"); if (f[0] === net.sessionId) bigText(`SAFE!<small>${ordinal(g.fin.length)} across · ${secs(f[1])}</small>`, 1800, true);
+    }
+  }
+  prevG = g;
+}
+
+// ── INPUT & SOUND ───────────────────────────────────────────────────────────────────
+const touchUI = matchMedia("(pointer: coarse)").matches && !ATTRACT;
+if (touchUI) $("msg").style.bottom = "calc(max(18px, env(safe-area-inset-bottom)) + 60px)";
+const keys = new Set(), stick = { id: -1, ox: 0, oy: 0, mx: 0, mz: 0 }, mouse = { down: false, nx: 0, ny: 0 };
+addEventListener("keydown", (e) => { keys.add(e.key.toLowerCase()); if (e.key === " " || e.key.startsWith("Arrow")) e.preventDefault(); unlockAudio(); });
+addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+addEventListener("blur", () => { keys.clear(); mouse.down = false; });
+const ray = new THREE.Raycaster(), groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit = new THREE.Vector3();
+function readInput() {
+  const k = (a, b) => (keys.has(a) || keys.has(b) ? 1 : 0);
+  let mx = k("d", "arrowright") - k("a", "arrowleft") + stick.mx, mz = k("s", "arrowdown") - k("w", "arrowup") - (keys.has(" ") ? 1 : 0) + stick.mz;
+  if (!mx && !mz && mouse.down) { // run toward the ground point under the pointer, through the camera that drew this frame
+    ray.setFromCamera({ x: mouse.nx, y: mouse.ny }, camera);
+    if (ray.ray.intersectPlane(groundPlane, hit)) { const dx = hit.x - me.x, dz = hit.z - me.z, d = Math.hypot(dx, dz); if (d > 0.4) { mx = dx / d; mz = dz / d; } }
+    else mz = -1; // pointing at the sky: straight ahead
+  }
+  return { mx, mz };
+}
+const cv = renderer.domElement;
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
+cv.addEventListener("pointerdown", (e) => {
+  e.preventDefault(); unlockAudio();
+  if (e.pointerType === "mouse") { mouse.down = true; mouse.nx = (e.clientX / innerWidth) * 2 - 1; mouse.ny = -(e.clientY / innerHeight) * 2 + 1; return; }
+  if (stick.id >= 0) return;
+  cv.setPointerCapture(e.pointerId);
+  Object.assign(stick, { id: e.pointerId, ox: e.clientX, oy: e.clientY, mx: 0, mz: 0 });
+  Object.assign($("stick").style, { left: e.clientX + "px", top: e.clientY + "px" }); $("stick").hidden = false;
+});
+cv.addEventListener("pointermove", (e) => {
+  if (e.pointerType === "mouse") { mouse.nx = (e.clientX / innerWidth) * 2 - 1; mouse.ny = -(e.clientY / innerHeight) * 2 + 1; }
+  if (e.pointerId !== stick.id) return;
+  const dx = e.clientX - stick.ox, dy = e.clientY - stick.oy, d = Math.hypot(dx, dy), k = Math.min(1, d / 50) / (d || 1);
+  stick.mx = dx * k; stick.mz = dy * k;
+  $("stick").firstElementChild.style.transform = `translate(${stick.mx * 35}px, ${stick.mz * 35}px)`;
+});
+for (const ev of ["pointerup", "pointercancel"]) cv.addEventListener(ev, (e) => {
+  if (e.pointerType === "mouse") mouse.down = false;
+  if (e.pointerId === stick.id) { Object.assign(stick, { id: -1, mx: 0, mz: 0 }); $("stick").hidden = true; }
+});
+document.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+
+let AC = null;
+function unlockAudio() { if (!AC && !ATTRACT) try { AC = new AudioContext(); } catch {} }
+function tone(f, d, type, v, f2, delay = 0) {
+  const t0 = AC.currentTime + Math.max(0, delay), o = AC.createOscillator(), g = AC.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t0); o.frequency.exponentialRampToValueAtTime(f2, t0 + d);
+  g.gain.setValueAtTime(0.0001, AC.currentTime); g.gain.setValueAtTime(v, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + d); o.connect(g).connect(AC.destination); o.start(AC.currentTime); o.stop(t0 + d + 0.02);
+}
+const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+function sound(kind) {
+  if (!AC) return;
+  if (kind === "turn") tone(220, CONFIG.turnMs / 1000, "sawtooth", 0.04, 520);
+  if (kind === "look") { tone(880, 0.12, "square", 0.06, 880); tone(660, 0.18, "square", 0.06, 660, 0.14); }
+  if (kind === "zap") { tone(1400, 0.35, "sawtooth", 0.08, 120); tone(90, 0.3, "square", 0.06, 50, 0.05); }
+  if (kind === "safe") { tone(523, 0.3, "triangle", 0.14, 523); tone(659, 0.3, "triangle", 0.12, 659, 0.1); tone(1047, 0.5, "triangle", 0.12, 1047, 0.2); }
+  if (kind === "go") tone(660, 0.3, "square", 0.08, 990);
+  if (kind === "hiccup") tone(500, 0.25, "triangle", 0.12, 140);
+}
+/** Hum-Bot's song: queue each of the 8 notes just before it is due, on the shared clock. */
+const song = { s: -1, next: 0, times: [], hic: false };
+function playSong(g, t) {
+  const w = g.w;
+  if (g.phase !== "play" || w.k !== "sing") return;
+  if (song.s !== w.s) Object.assign(song, { s: w.s, next: 0, times: noteTimes(w), hic: false });
+  while (song.next < MELODY.length && song.times[song.next] < t + 120) {
+    const i = song.next++, at = song.times[i];
+    if (at < t - 80) continue; // joined mid-song: skip what already played
+    floatNote();
+    if (AC) { const d = (at - t) / 1000, len = i === MELODY.length - 1 ? 0.6 : Math.min(0.4, noteStep(w) / 1000 * 0.9); tone(hz(MELODY[i]), len, "triangle", 0.14, hz(MELODY[i]), d); tone(hz(MELODY[i] + 12), len * 0.6, "sine", 0.04, hz(MELODY[i] + 12), d); }
+  }
+  if (w.f && !song.hic && t >= w.a + w.f) { song.hic = true; sound("hiccup"); }
+}
+
+// ── MAIN LOOP ───────────────────────────────────────────────────────────────────────
+let last = performance.now(), lastHb = 0, lastHud = 0;
+const camLook = new THREE.Vector3(), camGoal = new THREE.Vector3();
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (performance.now() - lastTick > 1000) { hostHold = performance.now() + 700; host.was = false; host.last = null; } // the tab was frozen or in the background: someone else may have hosted meanwhile, so let its state arrive, then adopt it
+  lastTick = performance.now(); // not the rAF time: after a long freeze Chrome can stamp the first frame from before it ended
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)), sec = now / 1000; last = now;
+  if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); fixColor(); }
+  if (isHost()) hostTick(dt, now); else host.was = false;
+  const g = game();
+  if (!g) { renderer.render(scene, camera); return; }
+  const t = Date.now();
+  myTick(dt, g, now);
+  const all = people(g);
+  effects(g, all, t);
+  playSong(g, t);
+  drawKids(g, all, now, sec);
+  drawHumBot(g, t, dt, sec);
+  drawParts(dt);
+  moveCamera(all, dt);
+  renderer.render(scene, camera);
+  if (now - lastHud > 100) { lastHud = now; hud(g, all); }
+}
+function drawKids(g, all, now, sec) {
+  const seen = new Set(), live = new Set(livePlayers()), t = Date.now();
+  const poseOf = (id) => hash(id) + (g.phase === "play" ? phaseAt(g.w, t).s : 0);
+  const draw = (v, id, s) => {
+    v.g.position.set(s.x, 0, s.z); v.g.rotation.y = s.h;
+    poseKid(v, s.a, poseOf(id), sec + (hash(id) % 100) * 0.01);
+    if (s.a === 3 && Math.random() < 0.3) burst(s.x, 1 + Math.random(), s.z, ["#6fe8ff", "#ffffff"], 1, 4);
+  };
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    if (id === net.sessionId || !live.has(id)) continue;
+    const q = posOf(id, p);
+    if (!q || q.g !== g.id) continue;
+    const s = sample(feed(id, p.p, q, now), now);
+    seen.add(id); draw(viewOf(id, p.c || "#ccc", p.n || "Player"), id, s);
+  }
+  const host_ = isHost(), bots = host_ ? [...host.bots.values()] : botList(), raw = S.shared.bots;
+  for (const b of bots) {
+    const id = host_ ? b.id : b.i, s = host_ ? b : sample(feed(id, raw, b, now), now);
+    seen.add(id); draw(viewOf(id, host_ ? b.color : b.c, host_ ? b.name : b.n), id, s);
+  }
+  for (const [id, v] of views) if (!seen.has(id)) { scene.remove(v.g); views.delete(id); tracks.delete(id); }
+  if (!me.view) me.view = makeKid(myColor, "");
+  draw(me.view, net.sessionId, me);
+  if (!youRing.parent) scene.add(youRing);
+  youRing.visible = !ATTRACT; youRing.position.set(me.x, 0.03, me.z); youRing.scale.setScalar(1.3 + Math.sin(sec * 4) * 0.08);
+}
+const youRing = new THREE.Mesh(flat(new THREE.RingGeometry(0.9, 1.0, 36)), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.7, depthWrite: false }));
+/** Low behind you, looking down the field at Hum-Bot (higher on a tall phone). ?attract follows the pack. */
+function moveCamera(all, dt) {
+  const tall = camera.aspect < 1;
+  let fx = me.x * (tall ? 0.85 : 0.5), fz = me.z;
+  if (ATTRACT) { const run = all.filter((c) => c.z > FINISH); fz = run.length ? run.reduce((s, c) => s + c.z, 0) / run.length : FINISH; fx = 0; }
+  const hgt = ATTRACT ? 5.5 : tall ? 12 : 8, back = ATTRACT ? 9 : tall ? 14 : 11;
+  camGoal.set(fx, 0, Math.max(fz, FINISH + 4));
+  camLook.lerp(camGoal, 1 - Math.pow(ATTRACT ? 0.2 : 0.01, dt));
+  shake = Math.max(0, shake - dt);
+  camera.position.set(camLook.x + (Math.random() - 0.5) * shake, hgt, camLook.z + back + (Math.random() - 0.5) * shake);
+  camera.lookAt(camLook.x * 0.6, ATTRACT ? 3.2 : 1.2, camLook.z - (ATTRACT ? 14 : 12));
+}
+
+(async function start() {
+  renderer.shadowMap.needsUpdate = true;
+  net = await connect();
+  me.id = net.sessionId;
+  net.onState((st) => { S = st; });
+  net.on("again", () => { const g = game(); if (isHost() && g && g.phase === "over") host.again = true; });
+  net.onDisconnect(() => { reconnecting = true; $("net").textContent = "Reconnecting…"; });
+  net.onReconnect(() => { reconnecting = false; });
+  if (!net.offline && typeof MP !== "undefined") board = MP.auth({ key: MP_CONNECT.key, apiUrl: MP_CONNECT.apiUrl }).leaderboard(CONFIG.board);
+  const taken = new Set(Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.c));
+  myColor = COLORS.find((c) => !taken.has(c)) || COLORS[Math.floor(Math.random() * COLORS.length)];
+  net.me.set({ n: myName, c: myColor, hb: Date.now() });
+  camLook.set(0, 0, START);
+  if (QS.has("test")) window.__test = { game, me, isHost, people: () => people(game()), phaseAt, lookSeq }; // for test scripts only
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
