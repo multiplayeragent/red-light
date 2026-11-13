@@ -36,6 +36,7 @@
   .card li span { float: right; font-variant-numeric: tabular-nums; }
   .card li em { font-style: normal; opacity: .7; font-size: 12px; }
   .card li.me { color: #ffe066; font-weight: 700; }
+  .card li.note { list-style: none; margin-left: -24px; opacity: .8; } /* a message in place of a list: no "1." in front of it */
   .card p { margin: 6px 0 0; font-size: 14px; opacity: .9; }
   button.go { margin-top: 16px; width: 100%; min-height: 48px; border: 0; border-radius: 12px; background: #ffe066; color: #2b2140; font: 800 17px system-ui, sans-serif; cursor: pointer; }
   #stick { position: fixed; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: #ffffff22; border: 2px solid #ffffff88; pointer-events: none; }
@@ -57,7 +58,7 @@
 <div id="over" hidden><div class="card">
   <h2 id="overTitle"></h2><p id="overLine"></p>
   <h3>This round</h3><ol id="results"></ol>
-  <h3>Fastest runs</h3><ol id="board"><li>Loading…</li></ol>
+  <h3>Fastest runs</h3><ol id="board"><li class="note">Loading…</li></ol>
   <button class="go" id="again">Play again</button>
   <p id="next"></p>
 </div></div>
@@ -324,10 +325,10 @@ const HB = (() => {
   part(new THREE.CylinderGeometry(0.07, 0.07, 1.1, 8), steel, 0, 1.7, 0, head);
   const lampMat = new THREE.MeshStandardMaterial({ color: "#3bdc6e", emissive: "#3bdc6e", emissiveIntensity: 1.2 });
   const lamp = part(new THREE.SphereGeometry(0.36, 16, 12), lampMat, 0, 2.4, 0, head);
-  // two search beams from the eyes, apex at the eye, opening toward the field
+  // two search beams from the eyes, apex at the eye, opening toward the field (tilted down enough that the camera is never inside one)
   const beamGeo = new THREE.ConeGeometry(3.2, 30, 24, 1, true).translate(0, -15, 0).rotateX(-Math.PI / 2);
   const beamMat = new THREE.MeshBasicMaterial({ color: "#ff3048", transparent: true, opacity: 0.0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-  const beams = [-0.62, 0.62].map((x) => { const b = new THREE.Mesh(beamGeo, beamMat); b.position.set(x, 0.1, 1.2); b.rotation.x = 0.24; head.add(b); return b; });
+  const beams = [-0.62, 0.62].map((x) => { const b = new THREE.Mesh(beamGeo, beamMat); b.position.set(x, 0.1, 1.2); b.rotation.x = 0.34; head.add(b); return b; });
   // laser zaps: thin red rods drawn from an eye to whoever moved
   const laserGeo = new THREE.CylinderGeometry(0.09, 0.09, 1, 8).translate(0, 0.5, 0);
   const lasers = Array.from({ length: 4 }, () => { const m = new THREE.Mesh(laserGeo, new THREE.MeshBasicMaterial({ color: "#ff4060", transparent: true })); m.visible = false; scene.add(m); return { m, life: 0 }; });
@@ -753,11 +754,11 @@ function results(g, t) {
 }
 function showBoard(ms) {
   const list = $("board");
-  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
-  list.innerHTML = "<li>Loading…</li>";
+  if (!board) { list.innerHTML = `<li class="note">Leaderboards need a connection.</li>`; return; }
+  list.innerHTML = `<li class="note">Loading…</li>`;
   (ms > 0 ? board.submit(Math.max(0, CONFIG.boardBase - ms)).catch(() => null) : Promise.resolve()).then(() => board.top(10)).then(({ entries }) => {
-    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${secs(CONFIG.boardBase - e.score)}</span></li>`).join("") : "<li>No runs yet. Set the first.</li>";
-  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${secs(CONFIG.boardBase - e.score)}</span></li>`).join("") : `<li class="note">No runs yet. Set the first.</li>`;
+  }).catch(() => { list.innerHTML = `<li class="note">Couldn't load the leaderboard.</li>`; });
 }
 /** Keep a color nobody else has: the later sessionId gives way, and the bots' colors count as taken. */
 function fixColor() {
@@ -830,7 +831,7 @@ cv.addEventListener("pointermove", (e) => {
   stick.mx = dx * k; stick.mz = dy * k;
   $("stick").firstElementChild.style.transform = `translate(${stick.mx * 35}px, ${stick.mz * 35}px)`;
 });
-for (const ev of ["pointerup", "pointercancel"]) cv.addEventListener(ev, (e) => {
+for (const ev of ["pointerup", "pointercancel"]) addEventListener(ev, (e) => { // on the window: letting go of the mouse over the results card or outside the page still stops you
   if (e.pointerType === "mouse") mouse.down = false;
   if (e.pointerId === stick.id) { Object.assign(stick, { id: -1, mx: 0, mz: 0 }); $("stick").hidden = true; }
 });
